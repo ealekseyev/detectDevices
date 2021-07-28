@@ -22,10 +22,10 @@ struct __attribute__((__packed__)) _dhcp_payload {
     uint16 bpflags;     // bootp flags; set to zero
     /// next comes the traditional bootp sector:
     // the next four are all zeroes if it is a type D request
-    uint8 ciaddr[4];    // client ip address
-    uint8 yiaddr[4];    // your ip addr
-    uint8 siaddr[4];    // dhcp server ip addr
-    uint8 giaddr[4];    // gateway ip addr
+    IPAddr ciaddr;    // client ip address
+    IPAddr yiaddr;    // your ip addr
+    IPAddr siaddr;    // dhcp server ip addr
+    IPAddr giaddr;    // gateway ip addr
     uint8 chaddr[16];   // client hardware address (MAC) all the rest are zeroes
     BootPOptions bootp_opts;
     uint32 magic_cookie;// default 0x63825363 (signifies dhcp)

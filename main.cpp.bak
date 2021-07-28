@@ -1,0 +1,109 @@
+#pragma once
+
+#include <stdio.h>
+#include "names.h"
+#include "ethernet.h"
+#include "dhcp.h"
+#include "InetProto.h"
+#include <ctime>
+#include <chrono>
+#include <vector>
+#include <array>
+#include <algorithm>
+
+struct __attribute__((__packed__)) _dhcp_packet_full {
+    EthHeader eth;
+    IPHeader ip;
+    UDPHeader udp;
+    DHCPPayload dhcp;
+}; typedef struct _dhcp_packet_full DHCPPacket;
+struct __attribute__((__packed__)) _mdns_packet_proto {
+    EthHeader eth;
+    IPHeader ip;
+    UDPHeader udp;
+    uint8 mdns[100];
+}; typedef struct _mdns_packet_proto MDNSPacket;
+
+std::vector<std::array<uint8, 6>> apple_devices;
+
+int main(int argc, char** argv) {
+    int sockfd = 0;
+    if ((sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+        printf("Error creating socket\n");
+        return 1;
+    }
+
+    /// bind to ens9
+    strcpy(ethernet::global_iface, argv[1]);
+    ethernet::bindToIface(sockfd, argv[1]);
+    ethernet::printIfaceDetails();
+
+
+    uint8 lastConnDevice[6];
+    std::time_t lastConnTime = 0;
+    while(true) {
+        int packType = -1, buflen = -1;
+        // scan for dhcp and mdns packets (LAN auth and airplay pings)
+        while(packType != MDNS) {// && packType != MDNS) {
+            buflen = ethernet::readRawBytes(sockfd, ethernet::private_buffer);
+            //buflen = ethernet::listenForExclusiveBytes(sockfd, ethernet::private_buffer, ethernet::broadcast_mac);
+            packType = inetProto::getPackType(ethernet::private_buffer, buflen);
+        }
+        printf("Received packet: %d\n", packType);
+        /// Apple devices constantly ping for new devices with keyword "airplay" in mdns
+        if(packType == MDNS) {
+            MDNSPacket mdns;
+            memcpy((uint8*) &mdns, ethernet::private_buffer, buflen);
+            // check if packet is an airplay ping
+            bool is_apple = isInArray(mdns.mdns, (uint8*)"airplay", buflen-sizeof(IPHeader)-sizeof(UDPHeader)-sizeof(EthHeader), strlen("airplay"));
+            // if it is, update the apple devices array
+            if(is_apple == true) {
+                std::array<uint8, 6> dev_mac = {
+                    mdns.eth.src_addr[0], mdns.eth.src_addr[1], mdns.eth.src_addr[2],
+                    mdns.eth.src_addr[3], mdns.eth.src_addr[4], mdns.eth.src_addr[5]};
+                printf("Airplay ping sniffed from "); /// apple packet
+                ethernet::printMAC(mdns.eth.src_addr);
+                printf(" - ");
+                // if not present, append
+                if(!stdarr_find(apple_devices, dev_mac)) {
+                    printf("appended\n");
+                    apple_devices.push_back(dev_mac);
+                } else {
+                    printf("already in whitelist\n");
+                }
+                printf("Apple devices:\n");
+                for(auto device: apple_devices) {
+                    printf("\t%0.2x:%0.2x:%0.2x:%0.2x:%0.2x:%0.2x\n", device[0], device[1], device[2], device[3], device[4], device[5]);
+                }
+            }
+        } /*else if(packType == DHCP) {
+            DHCPPacket dhcpData;
+            memcpy((uint8*) &dhcpData, ethernet::private_buffer, buflen < sizeof(DHCPPacket) ? buflen:sizeof(DHCPPacket));
+            if(memcmp(lastConnDevice, dhcpData.eth.src_addr, 6) == 0 && 
+            std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - lastConnTime < 60) {
+                printf("%d seconds elapsed since last connection. Skipping\n", std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - lastConnTime);
+                continue;
+            }
+            ethernet::printPacket(ethernet::private_buffer, buflen);
+            std::array<uint8, 6> dev_mac = {
+                dhcpData.eth.src_addr[0], dhcpData.eth.src_addr[1], dhcpData.eth.src_addr[2],
+                dhcpData.eth.src_addr[3], dhcpData.eth.src_addr[4], dhcpData.eth.src_addr[5]
+            };
+            bool is_apple = stdarr_find(apple_devices, dev_mac);
+            // send email abt new device on network
+            char cmd[100] = "python3 ";
+            strcat(cmd, names::pathToNotifier); strcat(cmd, " ");
+            char mac[18]; sprintf(mac, "%0.2x:%0.2x:%0.2x:%0.2x:%0.2x:%0.2x", dhcpData.eth.src_addr[0], dhcpData.eth.src_addr[1], dhcpData.eth.src_addr[2],dhcpData.eth.src_addr[3], dhcpData.eth.src_addr[4], dhcpData.eth.src_addr[5]);
+            strcat(cmd, mac); strcat(cmd, " CONN ");
+            if(is_apple)
+                strcat(cmd, "ISAPPL &");
+            else
+                strcat(cmd, "NOAPPL &");
+            printf("Executing cmd: %s\nSent!\n", cmd);
+            //system(cmd);
+            // make sure not to send the email twice
+            memcpy(lastConnDevice, dhcpData.eth.src_addr, 6);
+            lastConnTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        }*/
+    }
+}

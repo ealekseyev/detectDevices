@@ -1,8 +1,11 @@
+from mac_vendor_lookup import MacLookup
+from datetime import datetime
 import smtplib
 from sys import argv
+import time
 
-gmail_user = 'evansiotdevices@gmail.com'
-gmail_password = 'Evaniot20'
+gmail_user = ''
+gmail_password = ''
 
 sent_from = gmail_user
 to = ['6692785306@tmomail.net']
@@ -12,6 +15,8 @@ DAD_MAC = ""
 MOM_MAC = ""
 VERA_MAC = ""
 EVAN_MAC = "0a:1d:85:3b:b1:ee"
+
+BLACKLIST = ["a4:4e:31:d3:5a:a8"]
 
 body = ""
 if argv[2] == "CONN":
@@ -23,10 +28,18 @@ if argv[2] == "CONN":
 		body = "Vera's iPhone has joined WiFi"
 	elif argv[1].lower() == EVAN_MAC:
 		body = "Welcome home Evan!"
+	elif argv[1].lower() in BLACKLIST:
+		exit()
 	else:
-		body = argv[1].lower() + " has joined WiFi"
+		try:
+			body = argv[1].lower() + " (" + ("ISAPPL" if MacLookup().lookup(argv[1]) == 'Apple, Inc.' else argv[3]) + ") has joined WiFi"
+		except:
+			body = argv[1].lower() + " ("  + argv[3] + ") has joined WiFi"
 elif argv[2] == "DISC":
-	pass
+	exit()
+
+now = datetime.now()
+body += "\n" + now.strftime("%H:%M:%S")
 
 email_text = """\
 From: %s

@@ -5,22 +5,53 @@
 
 /// all uint16+ variables must be converted from network to host byte order on read.
 
-struct __attribute__((__packed__)) eth_header {
-    uint8 dst_addr[6];
-    uint8 src_addr[6];
+struct __attribute__((__packed__)) _mac_addr {
+    uint8 addr[6];
+    // ensures comparison by value between MACAddr's
+    bool operator==(_mac_addr const& addr_cmp) const {
+        if(memcmp(this->addr, addr_cmp.addr, 6) == 0) {
+            return true;
+        }
+        return false;
+    }
+}; typedef struct _mac_addr MACAddr;
+
+struct __attribute__((__packed__)) _ipv4_addr {
+    uint8 addr[4];
+    // ensures comparison by value between MACAddr's
+    bool operator==(_ipv4_addr const& addr_cmp) const {
+        if(memcmp(this->addr, addr_cmp.addr, 4) == 0) {
+            return true;
+        }
+        return false;
+    }
+}; typedef struct _ipv4_addr IPAddr;
+
+struct __attribute__((__packed__)) _ipv6_addr {
+    uint16 addr[6];
+    // ensures comparison by value between MACAddr's
+    bool operator==(_ipv6_addr const& addr_cmp) const {
+        if(memcmp(this->addr, addr_cmp.addr, 16) == 0) {
+            return true;
+        }
+        return false;
+    }
+}; typedef struct _ipv6_addr IPV6Addr;
+
+struct __attribute__((__packed__)) _eth_header {
+    MACAddr dst_addr;
+    MACAddr src_addr;
     uint16 ethertype;
-}; typedef struct eth_header EthHeader;
+}; typedef struct _eth_header EthHeader;
 
 namespace ethernet {
     uint8 broadcast_mac[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    uint8 private_buffer[1000]; // private buffer for all packets
+    uint8 internal_mac[] = {0, 0, 0, 0, 0, 0};
+    uint8 ipv4mcast_mac[] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0x00};
+    uint8 private_buffer[600]; // private buffer for all packets
     char global_iface[IFNAMSIZ];
-    /// converts char_ip into a uint array @ int_ip
-    inline void IP_ston(uint8* int_ip, char* char_ip) {
-        sscanf(char_ip, "%d.%d.%d.%d", int_ip, int_ip+1, int_ip+2, int_ip+3);
-    }
+
     /// stores MAC address of interface passed through 'name' into 'retval'
-    // verified
     void getIfaceMAC(uint8* retval, char* name) {
         char iface_mac[30];
         //strcpy(iface_mac, "78:7b:8a:bf:df:e3");
@@ -34,6 +65,9 @@ namespace ethernet {
         //memset(iface_mac, 0, 30) // probably redundant
         fgets(iface_mac, 18, fp);
         sscanf(iface_mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &retval[0], &retval[1], &retval[2], &retval[3], &retval[4], &retval[5]);
+    }
+    void getIfaceMAC(MACAddr& retval, char* name) {
+        getIfaceMAC(retval.addr, name);
     }
 
     // gets index of interface
@@ -80,7 +114,7 @@ namespace ethernet {
         struct ifaddrs* ifa;
         socklen_t addr_len;
 
-        addr_len = sizeof (addr);
+        //addr_len = sizeof (addr);
         getifaddrs(&ifaddr);
 
         // look which interface contains the wanted IP.
@@ -99,13 +133,15 @@ namespace ethernet {
         }
         freeifaddrs(ifaddr);
     }
-
     /// same as above function except with uint8[4] ip format
     void getIfaceFromIP(char* ret, uint8* iface_ip) {
         char iface_ip_char[16];
         sprintf(iface_ip_char, "%d.%d.%d.%d",
                 iface_ip[0], iface_ip[1], iface_ip[2], iface_ip[3]);
         getIfaceFromIP(ret, iface_ip_char);
+    }
+    void getIfaceFromIP(char* ret, IPAddr& iface_ip) {
+        getIfaceFromIP(ret, iface_ip.addr);
     }
 
     /// binds sockfd to interface iface
@@ -118,44 +154,6 @@ namespace ethernet {
             return false;
         }
         return true;
-    }
-
-    /// writes an arp packet given EthHeader and ARPPacket structs;
-    /// @deprecated old do not use
-    void write_arp(int sock, void* ethHeader, int size_e, void* arpPack, int size_a, int sock_ifr_ifindex) {
-        uint8 packet[64]; //TODO: check if this still works
-        struct sockaddr_ll socket_address;
-        //socket_address.sll_family = AF_PACKET;
-        /* Index of the network device */
-        socket_address.sll_ifindex = sock_ifr_ifindex;
-        /* Address length*/
-        socket_address.sll_halen = ETH_ALEN;
-        /* Destination MAC */
-        socket_address.sll_addr[0] = ((EthHeader*)ethHeader)->dst_addr[0];
-        socket_address.sll_addr[1] = ((EthHeader*)ethHeader)->dst_addr[1];
-        socket_address.sll_addr[2] = ((EthHeader*)ethHeader)->dst_addr[2];
-        socket_address.sll_addr[3] = ((EthHeader*)ethHeader)->dst_addr[3];
-        socket_address.sll_addr[4] = ((EthHeader*)ethHeader)->dst_addr[4];
-        socket_address.sll_addr[5] = ((EthHeader*)ethHeader)->dst_addr[5];
-
-        // convert structs to arrays and stitch them together
-        memset(packet, 0, 64);
-        memcpy(packet, (uint8*)ethHeader, size_e);
-        memcpy((packet+size_e), (uint8*)arpPack, size_a);
-        // print constructed packet
-        for(int i = 0; i < 8; i++) {
-            for(int j = 0; j < 8; j++) {
-                printf("%0.2x ", packet[(i*8)+j]);
-            }
-            printf("\n");
-        }
-        //wireshark seems to like 60 more than 64
-        int x = sendto(sock, (void*) packet, 60, 0, (const struct sockaddr*)&socket_address, sizeof(socket_address));
-        if(x < 0) fprintf(stderr, "Err: write_arp\n");
-        else printf("%d bytes written\n", x);
-        //if(sendto(sock, (void*) packet, sizeof(packet), 0, (const struct sockaddr*)&socket_address, sizeof(socket_address)) < 0) {
-        //   printf("an error occurred!");
-        //}
     }
 
     /// writes byte array stored in packet
@@ -176,7 +174,7 @@ namespace ethernet {
         }
     }
     /// writes byte array stored in packet
-    bool write_packet(int sock, void* packet, int packlen) {
+    bool write_packet(int sock, void* packet, size_t packlen) {
 #ifdef _PRINT
         // print constructed packet
         for(int i = 0; i < 12; i++) {
@@ -206,13 +204,13 @@ namespace ethernet {
         return true;
     }
 
-    /// reads and returns next packet; returns buffer length
+    /// reads and stores next packet in; returns buffer length
     // TODO: could be faulty if packet exceeds buffer boundaries; this applies to dependent functions too
     int readRawBytes(int sock, uint8* buffer) {
         while(true) {
             int len = recvfrom(sock, buffer, 65536, 0, nullptr, nullptr); // don't care about any other information but the packet
-            const uint8 blacklist[6] = {0,0,0,0,0,0};
-            if (memcmp(blacklist, buffer, 6) == 0) {
+            // do not want any unix packets (all zeroes for dst)
+            if (memcmp(internal_mac, buffer, 6) == 0) {
                 continue;
             } else {
                 return len;
@@ -231,6 +229,9 @@ namespace ethernet {
             }
         }
     }
+    int listenForAddressedBytes(int sock, uint8* buffer, MACAddr mac) {
+        return listenForAddressedBytes(sock, buffer, mac.addr);
+    }
 
     /// reads and returns next packet addressed to exclusively specified MAC
     int listenForExclusiveBytes(int sock, uint8* buffer, uint8* mac) {
@@ -242,19 +243,27 @@ namespace ethernet {
             }
         }
     }
+    int listenForExclusiveBytes(int sock, uint8* buffer, MACAddr mac) {
+        return listenForExclusiveBytes(sock, buffer, mac.addr);
+    }
 
     /// reads and returns next packet addressed to exclusively specified MAC from specified src
-    int listenForExclusiveBytesFrom(int sock, uint8* buffer, uint8* mac, uint8* src) {
+    int listenForExclusiveBytesFrom(int sock, uint8* buffer, uint8* dst, uint8* src) {
         while(true) {
             int bytes = readRawBytes(sock, buffer);
             // if it's addressed to specified MAC
-            if(memcmp(buffer, mac, 6) == 0 && memcmp(buffer+6, src, 6) == 0) { // remember memcmp returns 0 if they are equivalent
+            if(memcmp(buffer, dst, 6) == 0 && memcmp(buffer+6, src, 6) == 0) { // remember memcmp returns 0 if they are equivalent
                 return bytes;
             }
         }
     }
-    // TODO: check if it works. idk if little endian is required. Swap indeces 12 and 13 if it is
+    int listenForExclusiveBytesFrom(int sock, uint8* buffer, MACAddr dst, MACAddr src) {
+        return listenForExclusiveBytesFrom(sock, buffer, dst.addr, src.addr);
+    }
+
     /// reads and returns next packet addressed to exclusively specified MAC and specified protocol
+    // remember to use htons() for details.ethertype
+    // no need to insert MACAddr compatibility. compacted struct anyway
     int listenForDetailedPacket(int sock, uint8* buffer, EthHeader* details) {
         while(true) {
             int bytes = readRawBytes(sock, buffer);
@@ -288,7 +297,10 @@ namespace ethernet {
     }
 
     void printMAC(uint8* mac) {
-        printf("%0.2x:%0.2x:%0.2x:%0.2x:%0.2x:%0.2x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        printf("%0.2x:%0.2x:%0.2x:%0.2x:%0.2x:%0.2x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+    void printMAC(MACAddr& mac) {
+        printMAC(mac.addr);
     }
     void getIPFromIface(char* ip, char* iface) {
         struct sockaddr_in addr;
@@ -296,7 +308,6 @@ namespace ethernet {
         struct ifaddrs* ifa;
         socklen_t addr_len;
 
-        addr_len = sizeof (addr);
         getifaddrs(&ifaddr);
 
         // look which interface contains the wanted IP.
@@ -305,7 +316,6 @@ namespace ethernet {
             if (AF_INET == ifa->ifa_addr->sa_family) {
                 // do not do one if with an &&. could cause memory
                 // overflow error if they're not the same length
-
                 if(strlen(ifa->ifa_name) == strlen(iface)) {
                     if (memcmp(ifa->ifa_name, iface, strlen(iface)) == 0) {
                         char* sockIP = inet_ntoa(((struct sockaddr_in *) ifa->ifa_addr)->sin_addr); // socket ip
@@ -351,8 +361,8 @@ public:
 
     int read(uint8* buffer) {
         EthHeader recvHeader;
-        memcpy(recvHeader.dst_addr, ethHeader.src_addr, 6);
-        memcpy(recvHeader.src_addr, ethHeader.dst_addr, 6);
+        memcpy(recvHeader.dst_addr.addr, ethHeader.src_addr.addr, 6);
+        memcpy(recvHeader.src_addr.addr, ethHeader.dst_addr.addr, 6);
         recvHeader.ethertype = ethHeader.ethertype;
         return ethernet::listenForDetailedPacket(this->sock, buffer, &recvHeader);
     }

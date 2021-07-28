@@ -81,7 +81,7 @@ namespace inetProto {
             return IPV6;
         } else if (ethHeader.ethertype == htons(0x0800)) {
             IPHeader ipHeader;
-            memcpy((uint8 * ) & ipHeader, buffer + 14, sizeof(IPHeader));
+            memcpy((uint8 * ) &ipHeader, buffer + 14, sizeof(IPHeader));
             if (ipHeader.protocol == 1) {
                 return ICMP;
             } else if (ipHeader.protocol == 2) {
@@ -90,14 +90,15 @@ namespace inetProto {
                 return TCP;
             } else if (ipHeader.protocol == 17) {
                 UDPHeader udpHeader;
-                memcpy((uint8 * ) & udpHeader, buffer + 14 + sizeof(IPHeader), sizeof(UDPHeader));
-                if (udpHeader.dst_port == htons(53)) {
+                memcpy((uint8 *) & udpHeader, buffer + 14 + sizeof(IPHeader), sizeof(UDPHeader));
+                if (ntohs(udpHeader.dst_port) == 53) {
                     return DNS;
-                } else if (udpHeader.dst_port == htons(5353)) {
+                } else if (ntohs(udpHeader.dst_port) == 5353) {
                     return MDNS;
-                } else if (udpHeader.dst_port == htons(67)) {
+                    
+                } else if (ntohs(udpHeader.dst_port) == 67) {
                     return DHCP;
-                } else if (udpHeader.dst_port == htons(123)) {
+                } else if (ntohs(udpHeader.dst_port) == 123) {
                     return NTP;
                 } else {
                     return UDP;
