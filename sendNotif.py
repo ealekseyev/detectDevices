@@ -8,7 +8,7 @@ gmail_user = ''
 gmail_password = ''
 
 sent_from = gmail_user
-to = ['6692785306@tmomail.net']
+to = ['']
 subject = 'Device authenticated'
 
 DAD_MAC = ""
